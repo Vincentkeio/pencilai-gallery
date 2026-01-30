@@ -1,42 +1,55 @@
-# PencilAI Gallery (Open Source Edition)
+# PencilAI Gallery
 
-This repository is an **open-source export** of a PencilAI-style gallery site.
+> A clean, masonry-style WordPress image gallery powered by Docker.  
+> Zero membership. Zero payment. Zero configuration. Just drop images and run.
 
-It contains:
-- A WordPress theme template (`page-gallery.php`) that renders a Masonry-style gallery from a `tg_gallery/` folder.
-- Optional Python scripts to ingest images and generate thumbnails + SQLite metadata.
-- A Docker-based one-click installer.
+> 一个极简、瀑布流风格的 WordPress 图片画廊。  
+> 无会员、无支付、无配置，放图即用。
 
-> Note: This export intentionally **removes membership/paywall logic and any payment information**.
+---
 
-## Quick start (Docker)
+## ✨ Features | 特性
+
+- Masonry waterfall layout（瀑布流布局）
+- Lazy loading images（图片懒加载）
+- Multi-language UI（多语言：EN / 简 / 繁 / JP）
+- Random / Latest sorting（随机 / 最新排序）
+- File size display + direct download（显示大小 + 原图下载）
+- Docker one-click install（Docker 一键安装）
+- Optional image crawler & thumbnail generator（可选抓图/缩略图脚本）
+
+---
+
+## ❗ Important | 重要说明
+
+This repository **does NOT include**:
+
+- WordPress core
+- wp-config.php
+- uploads / images
+- any database
+- any payment / membership code
+
+Docker installation will automatically pull the official WordPress image.
+
+本仓库 **不包含**：
+
+- WordPress 核心
+- 任何数据库 / 图片
+- 任何支付或会员逻辑
+
+Docker 安装会自动拉取官方 WordPress 镜像。
+
+---
+
+## 🚀 Quick Start (Docker) | 一键启动
+
+Requirements:
+
+- Docker
+- Docker Compose
 
 ```bash
-cd install
+git clone https://github.com/Vincentkeio/pencilai-gallery.git
+cd pencilai-gallery/install
 bash install.sh
-```
-
-Then open the printed URL and upload some images into `install/tg_gallery/`.
-
-## Python ingestion (optional)
-
-```bash
-cd scripts
-cp config.example.json config.json
-# edit config.json with your own Telegram credentials
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python3 main.py once
-```
-
-## What is NOT included
-
-- No `wp-config.php` / secrets
-- No production database dumps
-- No `wp-content/uploads` media
-- No payment addresses / PayPal emails
-- No Google Indexing service account key
-
-## License
-
-Recommended: `GPL-2.0-or-later` for WordPress theme code.
