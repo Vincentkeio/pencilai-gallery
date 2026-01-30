@@ -1,0 +1,19 @@
+{
+  "telegram": {
+    "api_id": 123456,
+    "api_hash": "PUT_YOUR_API_HASH_HERE",
+    "phone_number": "+10000000000",
+    "two_step_password": "OPTIONAL_IF_ENABLED",
+    "channels": ["example_channel"],
+    "limit_count": 5000
+  },
+  "paths": {
+    "site_root": "..",
+    "tg_gallery_dir": "../tg_gallery",
+    "db_path": "./gallery.db",
+    "session_file": "./anon",
+    "timer_config": "./timer_config.json",
+    "last_ids": "./last_ids.json",
+    "download_history": "./download_history.txt"
+  }
+}
