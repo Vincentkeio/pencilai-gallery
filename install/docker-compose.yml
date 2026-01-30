@@ -22,7 +22,7 @@ services:
       WORDPRESS_DB_PASSWORD: ${WP_DB_PASS:-wp_pass}
     volumes:
       - wp_data:/var/www/html
-      - ./tg_gallery:/var/www/html/tg_gallery
+      - ../tg_gallery:/var/www/html/tg_gallery
       - ../wordpress/wp-content/themes/hamilton:/var/www/html/wp-content/themes/hamilton
 
   wpcli:

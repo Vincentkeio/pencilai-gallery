@@ -1,12 +1,31 @@
 import os
+import json
 import sqlite3
 import time
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_CONFIG = os.path.join(BASE_DIR, 'config.json')
 
-# ================= 配置区域 =================
-base_dir = '/www/wwwroot/pencilai.top/scripts'
-db_path = os.path.join(base_dir, 'gallery.db')
-gallery_dir = '/www/wwwroot/pencilai.top/tg_gallery'
-# ===========================================
+def _load_config_paths():
+    # Use config.json if present; fallback to config.example.json for path defaults
+    cfg_path = os.environ.get('PENCILAI_CONFIG', DEFAULT_CONFIG)
+    if not os.path.exists(cfg_path):
+        cfg_path = os.path.join(BASE_DIR, 'config.example.json')
+    with open(cfg_path, 'r', encoding='utf-8') as f:
+        cfg = json.load(f)
+    paths = cfg.get('paths', {}) if isinstance(cfg, dict) else {}
+    db_path = paths.get('db_path', './gallery.db')
+    tg_dir = paths.get('tg_gallery_dir', '../tg_gallery')
+    # resolve relative paths against scripts/ directory
+    if not os.path.isabs(db_path):
+        db_path = os.path.abspath(os.path.join(BASE_DIR, db_path))
+    if not os.path.isabs(tg_dir):
+        tg_dir = os.path.abspath(os.path.join(BASE_DIR, tg_dir))
+    return db_path, tg_dir
+
+
+# resolved paths
+db_path, gallery_dir = _load_config_paths()
+
 
 def init_and_migrate_db():
     """【整合功能】初始化数据库索引并补齐缺失的入库时间"""

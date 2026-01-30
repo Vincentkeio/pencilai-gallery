@@ -1,10 +1,33 @@
 import sqlite3
+import json
 import time
 import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_CONFIG = os.path.join(BASE_DIR, 'config.json')
+
+def _load_config_paths():
+    # Use config.json if present; fallback to config.example.json for path defaults
+    cfg_path = os.environ.get('PENCILAI_CONFIG', DEFAULT_CONFIG)
+    if not os.path.exists(cfg_path):
+        cfg_path = os.path.join(BASE_DIR, 'config.example.json')
+    with open(cfg_path, 'r', encoding='utf-8') as f:
+        cfg = json.load(f)
+    paths = cfg.get('paths', {}) if isinstance(cfg, dict) else {}
+    db_path = paths.get('db_path', './gallery.db')
+    tg_dir = paths.get('tg_gallery_dir', '../tg_gallery')
+    # resolve relative paths against scripts/ directory
+    if not os.path.isabs(db_path):
+        db_path = os.path.abspath(os.path.join(BASE_DIR, db_path))
+    if not os.path.isabs(tg_dir):
+        tg_dir = os.path.abspath(os.path.join(BASE_DIR, tg_dir))
+    return db_path, tg_dir
+
+
+# resolved paths
+db_path, gallery_dir = _load_config_paths()
+
 
 # 数据库路径
-db_path = '/www/wwwroot/pencilai.top/scripts/gallery.db'
-
 def migrate_and_init():
     if not os.path.exists(db_path):
         print("❌ 数据库文件不存在，请确认路径。")

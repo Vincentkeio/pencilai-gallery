@@ -1,11 +1,33 @@
 import os
+import json
 import sqlite3
 from datetime import datetime
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_CONFIG = os.path.join(BASE_DIR, 'config.json')
+
+def _load_config_paths():
+    # Use config.json if present; fallback to config.example.json for path defaults
+    cfg_path = os.environ.get('PENCILAI_CONFIG', DEFAULT_CONFIG)
+    if not os.path.exists(cfg_path):
+        cfg_path = os.path.join(BASE_DIR, 'config.example.json')
+    with open(cfg_path, 'r', encoding='utf-8') as f:
+        cfg = json.load(f)
+    paths = cfg.get('paths', {}) if isinstance(cfg, dict) else {}
+    db_path = paths.get('db_path', './gallery.db')
+    tg_dir = paths.get('tg_gallery_dir', '../tg_gallery')
+    # resolve relative paths against scripts/ directory
+    if not os.path.isabs(db_path):
+        db_path = os.path.abspath(os.path.join(BASE_DIR, db_path))
+    if not os.path.isabs(tg_dir):
+        tg_dir = os.path.abspath(os.path.join(BASE_DIR, tg_dir))
+    return db_path, tg_dir
+
+
+# resolved paths
+db_path, gallery_dir = _load_config_paths()
+
 
 # 配置与 main.py 保持一致
-db_path = '/www/wwwroot/pencilai.top/scripts/gallery.db'
-gallery_dir = '/www/wwwroot/pencilai.top/tg_gallery/'
-
 def sync_existing_files():
     # 初始化数据库连接
     conn = sqlite3.connect(db_path)

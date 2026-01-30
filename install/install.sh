@@ -1,155 +1,104 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# =========================
-# Helpers
-# =========================
-log() { echo -e "[$(date +'%F %T')] $*"; }
-die() { echo -e "ERROR: $*" >&2; exit 1; }
+# One-click installer (Docker Compose)
+# Usage:
+#   cd install
+#   bash install.sh
+# Optional env:
+#   WP_PORT=8080 WP_SITE_URL=http://localhost:8080 WP_TITLE="PencilAI" WP_ADMIN_USER=admin WP_ADMIN_PASS=... WP_ADMIN_EMAIL=... bash install.sh
 
-need_root() {
-  if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-    if command -v sudo >/dev/null 2>&1; then
-      exec sudo -E bash "$0" "$@"
-    else
-      die "请用 root 执行，或先安装 sudo。"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
+
+command -v docker >/dev/null 2>&1 || { echo "docker not found. Run: bash ./bootstrap.sh"; exit 1; }
+
+# docker compose detection
+if docker compose version >/dev/null 2>&1; then
+  DC="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  DC="docker-compose"
+else
+  echo "docker compose not found"; exit 1
+fi
+
+# Defaults
+WP_PORT="${WP_PORT:-8080}"
+\
+    # Determine a better default site URL:
+    # - If running via SSH, prefer server IP
+    # - Otherwise default to localhost
+    if [[ -z "${WP_SITE_URL:-}" ]]; then
+      HOST="localhost"
+      if [[ -n "${SSH_CONNECTION:-}" ]]; then
+        HOST="$(hostname -I 2>/dev/null | awk '{print $1}' | grep -v '^127\.' || true)"
+        [[ -n "$HOST" ]] || HOST="localhost"
+      fi
+      WP_SITE_URL="http://${HOST}:${WP_PORT}"
     fi
+WP_TITLE="${WP_TITLE:-PencilAI Gallery}"
+WP_ADMIN_USER="${WP_ADMIN_USER:-admin}"
+WP_ADMIN_PASS="${WP_ADMIN_PASS:-$(openssl rand -base64 12 | tr -d '=+/')}"
+WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL:-admin@example.com}"
+
+# DB defaults
+export WP_DB_NAME="${WP_DB_NAME:-wordpress}"
+export WP_DB_USER="${WP_DB_USER:-wp}"
+export WP_DB_PASS="${WP_DB_PASS:-wp_pass_$(openssl rand -hex 4)}"
+export WP_DB_ROOT_PASS="${WP_DB_ROOT_PASS:-root_pass_$(openssl rand -hex 4)}"
+export WP_PORT
+
+mkdir -p "$ROOT/tg_gallery"
+# backward compat: migrate old install/tg_gallery if exists
+if [[ -d "$HERE/tg_gallery" && ! -L "$HERE/tg_gallery" ]]; then
+  if compgen -G "$HERE/tg_gallery/*" > /dev/null; then
+    echo "[i] Migrating images from install/tg_gallery -> tg_gallery"
+    cp -an "$HERE/tg_gallery/." "$ROOT/tg_gallery/" || true
   fi
-}
+fi
 
-has_cmd() { command -v "$1" >/dev/null 2>&1; }
+cd "$HERE"
+$DC -f docker-compose.yml up -d
 
-detect_os() {
-  if [[ -f /etc/os-release ]]; then
-    # shellcheck disable=SC1091
-    . /etc/os-release
-    OS_ID="${ID:-unknown}"
-    OS_LIKE="${ID_LIKE:-}"
-    OS_VER="${VERSION_ID:-}"
-  else
-    OS_ID="unknown"; OS_LIKE=""; OS_VER=""
+echo "Waiting for WordPress container..."
+# Simple wait
+for i in $(seq 1 60); do
+  if docker ps --format '{{.Names}}' | grep -q "wordpress"; then
+    break
   fi
-}
+  sleep 1
+done
 
-install_docker_debian() {
-  log "Installing Docker (Debian/Ubuntu)…"
-  apt-get update -y
-  apt-get install -y ca-certificates curl gnupg lsb-release
+# Try to run wp-cli install (if not installed already)
+set +e
+$DC -f docker-compose.yml run --rm wpcli wp core is-installed >/dev/null 2>&1
+INSTALLED=$?
+set -e
 
-  install -m 0755 -d /etc/apt/keyrings
-  if [[ ! -f /etc/apt/keyrings/docker.gpg ]]; then
-    curl -fsSL https://download.docker.com/linux/${OS_ID}/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    chmod a+r /etc/apt/keyrings/docker.gpg
-  fi
+if [[ $INSTALLED -ne 0 ]]; then
+  echo "Running wp core install..."
+  $DC -f docker-compose.yml run --rm wpcli wp core install \
+    --url="$WP_SITE_URL" \
+    --title="$WP_TITLE" \
+    --admin_user="$WP_ADMIN_USER" \
+    --admin_password="$WP_ADMIN_PASS" \
+    --admin_email="$WP_ADMIN_EMAIL" \
+    --skip-email
 
-  ARCH="$(dpkg --print-architecture)"
-  CODENAME="$(. /etc/os-release && echo "${VERSION_CODENAME:-}")"
-  [[ -n "$CODENAME" ]] || CODENAME="$(lsb_release -cs 2>/dev/null || true)"
-  [[ -n "$CODENAME" ]] || die "无法识别发行版代号 VERSION_CODENAME。"
+  echo "Activating theme 'hamilton'..."
+  $DC -f docker-compose.yml run --rm wpcli wp theme activate hamilton
 
-  cat > /etc/apt/sources.list.d/docker.list <<EOF
-deb [arch=${ARCH} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${OS_ID} ${CODENAME} stable
-EOF
+  echo "Creating gallery page..."
+  PAGE_ID=$($DC -f docker-compose.yml run --rm wpcli wp post create --post_type=page --post_title="Gallery" --post_status=publish --porcelain)
+  # Assign template
+  $DC -f docker-compose.yml run --rm wpcli wp post meta update "$PAGE_ID" _wp_page_template page-gallery.php
+  # Set front page
+  $DC -f docker-compose.yml run --rm wpcli wp option update show_on_front page
+  $DC -f docker-compose.yml run --rm wpcli wp option update page_on_front "$PAGE_ID"
+fi
 
-  apt-get update -y
-  apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-}
-
-install_docker_rhel() {
-  log "Installing Docker (RHEL/CentOS/Rocky/Alma/Fedora)…"
-  if has_cmd dnf; then PM=dnf; else PM=yum; fi
-  $PM -y install yum-utils curl ca-certificates
-  yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo || true
-  $PM -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-}
-
-install_docker_fallback() {
-  log "Unknown distro, fallback to get.docker.com…"
-  curl -fsSL https://get.docker.com | sh
-  # compose plugin may not exist on old distros; try best effort:
-  if ! docker compose version >/dev/null 2>&1; then
-    log "docker compose plugin missing; trying to install compose plugin via package manager…"
-    if has_cmd apt-get; then
-      apt-get update -y
-      apt-get install -y docker-compose-plugin || true
-    elif has_cmd dnf; then
-      dnf -y install docker-compose-plugin || true
-    elif has_cmd yum; then
-      yum -y install docker-compose-plugin || true
-    fi
-  fi
-}
-
-ensure_docker() {
-  if has_cmd docker && docker version >/dev/null 2>&1; then
-    log "Docker already installed."
-  else
-    detect_os
-    case "${OS_ID}" in
-      ubuntu|debian)
-        install_docker_debian
-        ;;
-      centos|rhel|rocky|almalinux|fedora)
-        install_docker_rhel
-        ;;
-      *)
-        # Try OS_LIKE hints
-        if [[ "${OS_LIKE}" == *"debian"* ]]; then
-          OS_ID="debian"
-          install_docker_debian
-        elif [[ "${OS_LIKE}" == *"rhel"* ]] || [[ "${OS_LIKE}" == *"fedora"* ]]; then
-          install_docker_rhel
-        else
-          install_docker_fallback
-        fi
-        ;;
-    esac
-  fi
-
-  # Start docker
-  if has_cmd systemctl; then
-    systemctl enable --now docker || true
-  fi
-
-  # Verify
-  docker version >/dev/null 2>&1 || die "Docker 安装/启动失败，请检查 systemctl status docker"
-  if ! docker compose version >/dev/null 2>&1; then
-    # Some environments only have docker-compose (legacy)
-    if has_cmd docker-compose; then
-      log "Found legacy docker-compose."
-    else
-      die "未检测到 docker compose / docker-compose，请手动安装 compose。"
-    fi
-  fi
-  log "Docker OK."
-}
-
-compose_up() {
-  # Workdir: install/
-  local here
-  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  cd "$here"
-
-  if [[ ! -f docker-compose.yml && ! -f compose.yml ]]; then
-    die "install/ 目录下找不到 docker-compose.yml 或 compose.yml"
-  fi
-
-  log "Starting services…"
-  if docker compose version >/dev/null 2>&1; then
-    docker compose up -d
-  else
-    docker-compose up -d
-  fi
-
-  log "Done."
-  log "Open: http://localhost:8080"
-  log "If on VPS: http://<YOUR_SERVER_IP>:8080"
-}
-
-main() {
-  need_root "$@"
-  ensure_docker
-  compose_up
-}
-
-main "$@"
+echo ""
+echo "✅ Done. Open: $WP_SITE_URL"
+echo "Admin: $WP_SITE_URL/wp-admin"
+echo "User:  $WP_ADMIN_USER"
+echo "Pass:  $WP_ADMIN_PASS"
